@@ -112,12 +112,16 @@ simi <- function(beta, gamma, pop, i0,
 }
 ```
 
+```{r, echo=FALSE}
+beta <- 0.00015; pop <- 5000; gamma = 0.01; end = 20; report = 0.8; nchain = 3
+
+SIRdata <- simi(beta = beta, pop = pop, gamma = gamma,
+                       end = end, report = report, seed = 482)
+```
+
 Take a peek at what this model produces
 
 ```{r, echo=FALSE}
-  SIRdata <- simi(beta=0.00015, pop = 5000, gamma = 0.01,
-                       end = 100, report = 0.8, seed = 482)
-  
   ggplot(data.frame(SIRdata), aes(tvec, S)) + geom_point(colour = "blue") + 
     geom_line(colour = "blue") +
     geom_point(data = data.frame(SIRdata), aes(tvec, I), colour = "red") +
@@ -125,4 +129,46 @@ Take a peek at what this model produces
     theme_bw()
 ```
 
-Etc.
+
+
+```{r}
+  jagsdat <- list(infobs = SIRdata[, 5], pop = pop, end = end, 
+                  i0 = SIRdata[1, 3])
+
+  parameters <- c("beta", "gamma", "report")
+  
+inits <- list(list(
+	beta = beta/10, 
+	report = 0.2,
+	inf = SIRdata[, 5]*1 + 1
+), list(
+	beta = beta, 
+	report = 0.3,
+	inf = SIRdata[, 5]*1 + 1
+), list(
+	beta = beta*10, 
+	report = 0.4,
+	inf = SIRdata[, 5]*1 + 1
+))
+```
+
+Place 'jagsSIRmodel.bug' in your working directory
+
+Create the model and examine the MCMC algorithms that JAGS will use to sample
+```{r}
+ SIRmodel <- jags.model(file = "jagsSIRmodel.bug", data = jagsdat, inits = inits, 
+             n.chains = length(inits), n.adapt = 1000)
+
+list.samplers(SIRmodel)
+```
+
+Run some chains
+```{r}
+update(SIRmodel, n.iter = 500, by = 25, progress.bar = "text")
+```
+
+
+```{r, echo=FALSE}
+
+```
+ 
