@@ -113,7 +113,7 @@ simi <- function(beta, gamma, pop, i0,
 ```
 
 ```{r, echo=FALSE}
-beta <- 0.00015; pop <- 5000; gamma = 0.01; end = 20; report = 0.8; nchain = 3
+beta <- 0.00015; pop <- 5000; gamma = 0.04; end = 100; report = 0.8; nchain = 3
 
 SIRdata <- simi(beta = beta, pop = pop, gamma = gamma,
                        end = end, report = report, seed = 482)
@@ -152,9 +152,12 @@ inits <- list(list(
 ))
 ```
 
-Place 'jagsSIRmodel.bug' in your working directory
+Place 'jagsSIRmodel.bug' in your working directory <br />
 
-Create the model and examine the MCMC algorithms that JAGS will use to sample
+##### Note: Many of these builds take a very long time to run. Feel free to adjust "n.iter" or "end" or load the .rda file included
+
+Create the model and examine the MCMC algorithms that JAGS will use to sample <br />
+
 ```{r}
  SIRmodel <- jags.model(file = "jagsSIRmodel.bug", data = jagsdat, inits = inits, 
              n.chains = length(inits), n.adapt = 1000)
@@ -164,11 +167,208 @@ list.samplers(SIRmodel)
 
 Run some chains
 ```{r}
-update(SIRmodel, n.iter = 500, by = 25, progress.bar = "text")
+SIRsamples <- jags(data=jagsdat, inits=inits, param=parameters, 
+             model.file = SIR.jagsmodel,   
+             n.chains=length(inits), n.iter=5000, n.burnin=500, 
+             n.thin=20, 
+             refresh = 100)
 ```
 
+```{r}
+SIRsamples
+mcmcplot(SIRsamples)
+```
 
-```{r, echo=FALSE}
+Very poor mixing and far from convergence
+
+Run for a lot longer... (Which we have done previously but will not do here due to time required)
+```{r}
+
+```  
+
+```{r}
+## insert your specific directory
+load(".rda")
+```
+
+```{r}
+
+```  
+
+```{r}
+SIRnimble <- nimbleCode({
+    ## Initial values
+    I[1] <- i0
+    S[1] <- pop - i0
+    pR <- 1 - exp(-gamma)
+    pI[1] <- 1 - exp(-beta*I[1]*S[1]/pop)
+    inf[1] ~ dbin(pI[1], S[1])
+    infobs[1] ~ dbin(report, inf[1])
+    rec[1] ~ dbin(pR, I[1])
+    
+    ## Step through observations
+    for (t in 2:end) {
+      S[t] <- S[t - 1] - inf[t - 1]
+      I[t] <- I[t - 1] + inf[t - 1] - rec[t - 1]
+      pI[t] <- 1 - exp(-beta*S[t]*I[t]/pop)
+      inf[t] ~ dbin(pI[t], S[t])
+      infobs[t] ~ dbin(report, inf[t])
+      rec[t] ~ dbin(pR, I[t])
+    }
+    ## aux variables
+    
+    ## priors
+    beta ~ dgamma(1/2, 1)
+    gamma ~ dunif(0, 1) 
+    report ~ dbeta(1/2, 1/2)
+  })
+```
+
+Set up the model. Here we need:
+1) Constants -- 
+2) Data -- 
+3) Initial Values --
+4) NIMBLE model object -- 
+
+```{r}
+  SIRcons <- list(i0 = SIRdata[1, 3], 
+                     pop = 500, end = 30)
+  
+  SIRdata <- list(infobs = SIRdata[, 5])
+  
+  SIRinits <- list(beta = 0.01, gamma = 0.15, report = 0.2,
+                     inf = SIRdata[, 5] + 1,
+                     rec = round(SIRdata[, 5]/2))
+  
+  SIRout <- nimbleModel(code = SIRnimble, 
+                         name = 'SIR_out', 
+                         constants = SIR_Consts,
+                         data = SIR_Data, 
+                         inits = SIR_Inits)
+  
 
 ```
- 
+
+```{r}
+SIR_out$getNodeNames()
+```
+
+```{r}
+SIR_out$infobs
+```
+
+```{r}
+par(mfrow = c(1,1))
+tkplot(SIR_out$graph)
+```
+
+```{r}
+SIR_out$getDependencies(c('beta', 'gamma', 'report'))
+```
+
+```{r}
+SIR_out$getDependencies(c('beta', 'gamma', 'report'), determOnly = TRUE)
+```
+
+```{r}
+C_SIR_out <- compileNimble(SIR_out)
+```
+
+```{r}
+SIR_out_Spec <- configureMCMC(SIR_out, print = TRUE)
+```
+
+```{r}
+SIR_out_Spec$addMonitors(c('beta', 'gamma', 'report'))
+```
+
+```{r}
+SIR_out_MCMC <- buildMCMC(SIR_out_Spec)
+
+SIR_out_MCMC <- compileNimble(SIR_out_MCMC, project = SIR_out)
+```
+
+```{r}
+niter <- 24000
+set.seed(0)
+SIR_out_MCMC$run(niter)
+```
+
+```{r, echo = FALSE}
+  samples <- as.matrix(SIR_out_MCMC$mvSamples)
+  par(mfrow = c(1, 2), mai = c(.6, .5, .1, .2))
+  plot(samples[ , 'beta'], type = 'l', xlab = 'iteration',
+       ylab = expression(beta))
+  plot(samples[ , 'beta'], type = 'l', xlab = 'iteration',
+       ylab = expression(beta), xlim = c(2000, 10000),
+       ylim = c(0.00, 0.02))
+  plot(samples[ , 'report'], type = 'l', xlab = 'iteration',
+       ylab = expression(report))
+  plot(samples[ , 'gamma'], type = 'l', xlab = 'iteration',
+       ylab = expression(gamma))
+```
+
+```{r}
+  mc <- MCMCsuite(code = SIRnimble,
+                  data = SIR_Data,
+                  inits = SIR_Inits,
+                  constants = SIR_Consts,
+                  MCMCs = c("jags", "nimble", "nimble_slice"),
+                  monitors = c("beta", "gamma", "report"),
+                  niter = 10000,
+                  makePlot = TRUE,
+                  savePlot = TRUE)
+```
+
+```{r}
+  acf(samples[, "beta"])
+  acf(samples[, "gamma"])
+  acf(samples[, "report"])
+```
+
+```{r}
+SIR_out_Spec$addSampler(target = c('beta', 'report'), type = 'RW_block',
+                      control = list(adaptInterval = 1000))
+```
+
+```{r}
+SIR_out_Spec$setThin(120)
+```
+
+```{r}
+SIR_out_MCMC <- buildMCMC(SIR_out_Spec)
+```
+
+```{r}
+SIR_out_MCMC <- compileNimble(SIR_out_MCMC, project  = SIR_out,
+                                resetFunctions = TRUE)
+```
+
+```{r}
+SIR_out_MCMC$run(niter)
+  ## NULL
+samplesNew <- as.matrix(SIR_out_MCMC$mvSamples)
+```
+
+```{r}
+  par(mfrow = c(1, 3), mai = c(.6, .5, .1, .2))
+  plot(samplesNew[ , 'beta'], type = 'l', xlab = 'iteration',
+       ylab = expression(beta))
+  plot(samplesNew[ , 'gamma'], type = 'l', xlab = 'iteration',
+       ylab = expression(gamma))
+  plot(samplesNew[ , 'report'], type = 'l', xlab = 'iteration',
+       ylab = "report")
+  par(mfrow = c(1,1))
+  plot(samplesNew[ , 'beta'], samplesNew[ , 'gamma'], 
+       xlab = expression(beta), ylab = expression(gamma))
+```
+
+```{r}
+  acf(samplesNew[, "beta"])
+  acf(samplesNew[, "gamma"])
+  acf(samplesNew[, "report"])
+```
+
+```{r}
+
+```
