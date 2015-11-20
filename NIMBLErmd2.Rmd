@@ -1,13 +1,15 @@
-### High correlation between gamma and report which is what the problem I had with this model at the
-### very beginning. Given the level that we observe (inf_obs), we can produce a given level of I by
-### having a higher recovery rate matched by a higher rate of observation
-
 ---
 title: "NIMBLE + Wrapup"
 author: "Mike Li, Morgan Kain"
 date:  "`r format(Sys.time(), '%H:%M %d %B %Y')`"
 output: html_document
 ---
+
+```{r setup}
+library(knitr)
+opts_knit$set(root.dir = "/Users/Morgan/Documents/Research/McMaster/Modeling_Work/Mike_Lunchbox/lunchbox")
+opts_knit$set(cache = TRUE)
+```
 
 Our goals for the final presentation are the following: <br />
 1. Describe the use of a powerful tool for MCMC and other applications (Particle Filtering, EM) <br />
@@ -68,7 +70,7 @@ install.packages("rstan", dependencies = TRUE) <br />
 
 In total you will need the following pakages:
 
-```{r loadpackage, echo=TRUE, message=FALSE}
+```{r loadpackage, echo=TRUE, message=FALSE, verbose = FALSE}
 library("nimble")
 library("R2jags")
 library("ggplot2")
@@ -92,32 +94,41 @@ NIMBLE calls non-stochastic nodes “deterministic”, whereas BUGS calls them �
 NIMBLE uses “logical” in the way R does, to refer to boolean (TRUE/FALSE) variables.
 Alternative models can be defined from the same model code by using if-then-else statements that are evaluated when the model is defined.
 
-#### Presentation Outline
+### Presentation Outline
 The general outline for this presentation follows along with the NIMBLE users manual <br />
 http://r-nimble.org/documentation-2 <br />
 However, the model(s) used here are written by us <br />
 
-1. Build a chain binomial model in JAGS. Conduct parameter estimation <br />
-2. Translate the model into NIBLE. Conduct parameter estimation <br />
-      2.1 Model conversion <br />
-      2.2 Compile the model <br />
-      2.3 Create a basic MCMC specification for the pump model <br />
-      2.4 Compile and run the MCMC <br />
-3. Compare the results between these two approaches (parameter estimates, uncertainty, convergence, computation time) <br />
-      3.1 Customize the MCMC specification and compile and run that <br />
-4. Write the same model in STAN using a "hybrid approach" (STAN does not allow for discrete latent variables). Conduct parameter estimation and forecasting <br />
-5. Translate this new model into NIMBLE. <br />
-6. Compare all results <br />
-7. Create, compile and run a Monte Carlo Expectation Maximization (MCEM) algorithm, which illustrates some of the flexibility NIMBLE provides to combine R and NIMBLE. <br />
-8. Implement particle filtering for this same model <br />
-9. Write a short nimbleFunction to generate simulations from designated nodes of any model. <br />
+##### Part 1
+[1.1](#1.1) Build a chain binomial model in JAGS. Conduct parameter estimation <br />
+[1.2](#1.2) Translate the model into NIBLE. Conduct parameter estimation <br />
+      [1.2.1](#1.2.1) Model exploration/conversion <br />
+      [1.2.2](#1.2.2) Create a basic MCMC specification for the chain binomial, compile and run the MCMC <br />
+      [1.2.3](#1.2.3) Small MCMC specification adjustment (more on this in Part 2) <br />
+[1.3](#1.3) Compare the JAGS and NIMBLE results (parameter estimates, uncertainty, convergence, computation time) <br />
+[1.4](#1.4) Translate the model using a "hybrid approach" (STAN does not allow for discrete latent variables) <br />
+      [1.4.1](#1.4.1) Conduct parameter estimation using JAGS and NIMBLE <br />
+      [1.4.2](#1.4.2) Run the hybrid model in STAN and compare the results from JAGS, NIMBLE and STAN <br />
+[1.5](#1.5) Compare the NIMBLE Chain Binomial and STAN hybrid model <br />
 
-##### Build an SIR model in JAGS
-First step is to construct the simulator from which we will obtain our data 
+##### Part 2
+[2.1](#2.1) Expolore more fine-tuned adjustments that can be made in NIMBLE <br />
+      [2.1.1](#2.1.1)  MCMC specifications <br />
+      [2.1.2](#2.1.2)  NIMBLE functions (e.g. allows for the implementation of custom samplers) <br />
+      
+##### Part 3     
+[3.1](#3.1) NIMBLE extras: <br />
+      [3.1.1](#3.1.1) Create, compile and run a Monte Carlo Expectation Maximization (MCEM) algorithm, which illustrates some of the flexibility                   NIMBLE provides to combine R and NIMBLE. <br />
+      [3.1.2](#3.1.2) Implement particle filtering for the chain binomial <br />
 
-##### Note: It will be important to set your current working directory to "../stat744/notes/NIMBLE"
+### Part 1
 
-Set parameters and load the Chain Binomial simulator
+##### <a name="1.1"> 1.1 Build a chain binomial model in JAGS </a>
+First step is to construct the simulator from which we will obtain our data <br />
+
+Note: It will be important to set your current working directory to "../stat744/notes/NIMBLE" <br />
+
+Set parameters and load the Chain Binomial simulator <br />
 
 ```{r}
 beta <- 0.02
@@ -134,8 +145,6 @@ numobs <- 20
 nimtimevec <- c()
 source("CBsimulator.R")
 ```
-
-Simulate
 
 ```{r, echo=FALSE}
 sim <- simCB(beta = beta, pop = pop, effpropS = effpropS, effpropI = effpropI, 
@@ -189,8 +198,6 @@ params = c("beta",
 #rjags::set.factory("bugs::Conjugate", FALSE, type="sampler")
 ```
 
-##### Note: Many of these builds take a very long time to run. Feel free to adjust "n.iter" or "end" or load the .rda file included
-
 Create the model and examine the MCMC algorithms that JAGS will use to sample <br />
 
 ```{r}
@@ -203,6 +210,7 @@ list.samplers(cbjagsmodel)
 ```
 
 Run some chains (could use coda::coda.samples from cbjagsmodel but here we will just run jags()) <br />
+
 ```{r}
 jagstime <- system.time(cbjags <- jags(data = data,
                inits = inits,
@@ -219,7 +227,7 @@ cbjags
 xyplot(as.mcmc(cbjags))
 ```
 
-Load the nimble model
+##### <a name="1.2"> 1.2 Build the NIMLE model </a>
 
 ```{r}
 source('nimCB.R')
@@ -246,6 +254,8 @@ nimtimevec[1] <- system.time(CBout <- nimbleModel(code = nimcode,
                          inits = nimCBinits))[3]
 ```
 
+##### <a name="1.2.1"> 1.2.1 Model exploration/conversion </a>
+
 ```{r}
 CBout$getNodeNames()
 ```
@@ -256,7 +266,7 @@ CBout$obs
 
 ```{r}
 par(mfrow = c(1,1))
-tkplot(CBout$graph)
+plot(CBout$graph)
 ```
 
 nimbleModel does its best to initialize a model, but let’s say you want to re-initialize I. <br />
@@ -274,7 +284,7 @@ CBout$getDependencies(c("beta", "effpropS", "effpropI", "reporting"))
 CBout$getDependencies(c("beta", "effpropS", "effpropI", "reporting"), determOnly = TRUE)
 ```
 
-Compile the C++ code <br />
+##### <a name="1.2.2"> 1.2.2 Compile the C++ model, build the MCMC and Run </a>
 
 ```{r}
 nimtimevec[2] <- system.time(CBoutC <- compileNimble(CBout))[3]
@@ -282,7 +292,7 @@ nimtimevec[2] <- system.time(CBoutC <- compileNimble(CBout))[3]
 
 Configure the MCMC with the default options (we will return to customizing this setup later) <br />
 
-```{r}
+```{r, message=FALSE, verbose = FALSE}
 nimtimevec[3] <- system.time(CBoutSpec <- configureMCMC(CBout, print = TRUE))[3]
 ```
 
@@ -332,7 +342,9 @@ Look at the correlation in the chains
   acf(samples[, "effpropI"])
 ```
 
-A few undesirable results here... we can add a block sampler to decrease correlation
+##### <a name="1.2.3"> 1.2.3 Small MCMC specification adjustment </a>
+
+A few undesirable results here... we can add a block sampler to decrease correlation <br />
 
 ```{r}
 CBoutSpec$addSampler(target = c('effpropS', 'effpropI'), type = 'RW_block',
@@ -368,9 +380,11 @@ Check for an imporvement
   plot(samplesNew[ , 'effpropS'], samplesNew[ , 'effpropI'])
 ```
 
-##### We can also compare the NIMBLE model simultaneously with the JAGS model using MCMCsuite() <br />
+##### <a name="1.3"> 1.3 Compare the JAGS and NIMBLE results </a>
 
-Be warned: running this code will produce about 6-8 graphs which will all pop up in separate windows!
+We can also compare the NIMBLE model simultaneously with the JAGS model using MCMCsuite() <br />
+
+Be warned: running this code will produce about 6-8 graphs which will all pop up in separate windows! <br />
 
 ```{r}
 nimcb <- MCMCsuite(code = nimcode,
@@ -380,11 +394,11 @@ nimcb <- MCMCsuite(code = nimcode,
                    MCMCs = c("jags", "nimble"),
                    monitors = c("beta", "reporting", "effpropS", "effpropI"),
                    niter = 4000,
-                   makePlot = TRUE,
+                   makePlot = FALSE,
                    savePlot = TRUE)
 ```
 
-##### To fit this model in STAN...
+##### <a name="1.4"> 1.4 "hybrid approach" </a> 
 
 We must rewrite the model so that there are no discrete latent variables. We call this the "hybrid model" <br />
 An asside -- Discrete Latent Variables: <br />
@@ -407,7 +421,7 @@ hybridjags <- jags(data = data,
                n.chains = length(inits))
 ```
 
-Load ands set up the hybrid model
+##### <a name="1.4.1"> 1.4.1 Hybrid in JAGS and NIMBLE </a>
 
 ```{r}
 source('nimhybrid.R')
@@ -433,151 +447,73 @@ nimcb <- MCMCsuite(code = nimcode,
                    MCMCs = c("jags", "nimble"),
                    monitors = c("beta", "reporting", "effpropS", "effpropI"),
                    niter = 4000,
+                   makePlot = FALSE,
+                   savePlot = TRUE)
+```
+
+##### <a name="1.4.2"> 1.4.2 Hybrid in JAGS, NIMBLE and STAN </a>
+
+Run the STAN model <br />
+
+```{r, message=FALSE, verbose = FALSE}
+stantime <- system.time (s1 <- stan(file='hybrid.stan', data = data, init = inits,
+           pars=c("beta", "reporting", "effpropS", "effpropI", "I"), iter = 8000,
+           seed = 1001, chains = length(inits)))
+```
+
+Compare all three methods using the hybrid model <br />
+
+```{r}
+nimhydata <- list(obs = sim$Iobs + zerohack)
+nimhycon <- list(numobs = numobs, pop = pop, 
+                 r0 = r0, zerohack = zerohack)
+
+nimhyinits <- list(I = sim$I + zerohack,
+                   effpropS = effpropS,
+                   effpropI = effpropI,
+                   beta = beta,
+                   reporting = reporting,
+                   s0 = s0)
+```
+
+```{r, message=FALSE, verbose = FALSE}
+allhybrids <- MCMCsuite(code = nimcode,
+                   data = nimhydata,
+                   inits = nimhyinits,
+                   constants = nimhycon,
+                   stan_model = "hybrid.stan",
+                   MCMCs = c("jags", "nimble", "stan"),
+                   monitors = c("beta", "reporting", "effpropS", "effpropI"),
+                   niter = 10000,
+                   makePlot = FALSE,
+                   savePlot = TRUE)
+```
+
+##### <a name="1.5"> 1.5 Finally, compare the Chain Binomial NIMBLE and Hybrid STAN </a>
+
+```{r}
+nimCBdata <- list(obs = sim$Iobs)
+nimCBcon <- list(numobs = numobs, pop = pop, r0 = r0)
+
+nimCBinits <- list(I = sim$I,
+                   effpropS = effpropS,
+                   effpropI = effpropI,
+                   beta = beta,
+                   reporting = reporting,
+                   s0 = s0)
+```
+
+```{r, eval = FALSE}
+nimcb <- MCMCsuite(code = nimcode,
+                   data = nimCBdata,
+                   inits = nimCBinits,
+                   constants = nimCBcon,
+                   stan_model = "hybrid.stan",
+                   MCMCs = c("jags", "nimble", "stan"),
+                   monitors = c("beta", "reporting", "effpropS", "effpropI"),
+                   niter = 10000,
                    makePlot = TRUE,
                    savePlot = TRUE)
 ```
 
-Set up the stan model
-
-```{r}
-s1 <- stan(file='hybrid.stan', data = data, init = inits,
-           pars=c("beta", "reporting", "effpropS", "effpropI", "I"), iter = 8000,
-           seed = 1001,
-           chains = 1)
-```
-
-
-
-#### Everything below this old stuff
-
-
-
-```{r}
-simNodesMany <- nimbleFunction(
-  setup = function(model, nodes) {
-  mv <- modelValues(model)
-  deps <- model$getDependencies(nodes)
-  allNodes <- model$getNodeNames()
-  },
-  run = function(n = integer()) {
-    resize(mv, n)
-      for(i in 1:n) {
-        simulate(model, nodes)
-        calculate(model, deps)
-        copy(from = model, nodes = allNodes,
-        to = mv, rowTo = i, logProb = TRUE)
-      }
-  })
-```
-
-```{r}
-simNodesTheta1to5 <- simNodesMany(pump, 'theta[1:5]')
-simNodesTheta6to10 <- simNodesMany(pump, 'theta[6:10]')
-```
-
-```{r}
-set.seed(0)
-pump$alpha <- pumpMLE[1]
-pump$beta <- pumpMLE[2]
-```
-
-```{r}
-calculate(pump, pump$getDependencies(c('alpha','beta'), determOnly = TRUE))
-```
-
-```{r}
-saveTheta <- pump$theta
-simNodesTheta1to5$run(10)
-simNodesTheta1to5$mv[['theta']][1:2]
-```
-
-```{r}
-simNodesTheta1to5$mv[['logProb_x']][1:2]
-```
-
-### The NIMBLE algorithm library
-
-1. MCMC with samplers including conjugate, slice, adaptive random walk, and adaptive
-block random walk. NIMBLE’s MCMC system illustrates the flexibility of combining R
-and C++. An R function inspects the model object and creates an MCMC specification
-object representing choices of which kind of sampler to use for each node. <br />
-2. A nimbleFunction that provides a likelihood function for arbitrary sets of nodes in
-any model. This can be useful for simple maximum likelihood estimation of nonhierarchical
-models using R’s optimization functions. And it can be useful for other R
-packages that run algorithms on any likelihood function. <br />
-3. A nimbleFunction that provides ability to simulate, calculate, or retrieve the summed
-log probability (density) of many sets of values for arbitrary sets of nodes.
-4. A nimbleFunction that provides a basic particle filter for a state-space model. <br />
-5. A basic Monte Carlo Expectation Maximization (MCEM) algorithm. MCEM has its <br />
-issues as an algorithm, such as potentially slow convergence to the maximum likelihood
-(i.e., empirical Bayes in this context) estimates, but we chose it as a good illustration
-of how NIMBLE can be used. Each MCMC step uses NIMBLE’s MCMC; the objective
-function for maximization is another nimbleFunction; and the actual maximization
-is done through R’s optim function1 <br />
-
-
-
-```{r}
-
-```
-
-```{r}
-
-```
-
-```{r}
-
-```
-
-```{r}
-
-```
-
-```{r}
-
-```
-
-```{r}
-
-```
-
-```{r}
-
-```
-
-```{r}
-
-```
-
-```{r}
-
-```
-
-Can also do EM
-
-```{r}
-pump2 <- pump$newModel()
-```
-
-```{r}
-box = list( list(c('alpha','beta'), c(0, Inf)))
-```
-
-```{r}
-pumpMCEM <- buildMCEM(model = pump2, latentNodes = 'theta[1:10]',
-boxConstraints = box)
-```
-
-```{r}
-pumpMLE <- pumpMCEM()
-```
-
-```{r}
-pumpMLE
-```
-
-
-
-
-
-
+### Part 2
