@@ -8,7 +8,7 @@ output: html_document
 ```{r setup}
 library(knitr)
 opts_knit$set(root.dir = "/Users/Morgan/Documents/Research/McMaster/Modeling_Work/Mike_Lunchbox/lunchbox")
-opts_knit$set(cache = TRUE)
+#opts_chunk$set(cache = TRUE)
 ```
 
 Our goals for the final presentation are the following: <br />
@@ -138,23 +138,22 @@ Note: It will be important to set your current working directory to "../stat744/
 
 Set parameters and load the Chain Binomial simulator <br />
 
-```{r}
+```{r, cache.rebuild = TRUE}
 beta <- 0.02
 pop <- 100
 effpropS <- 0.8
 effpropI <- 0.2
 reporting <- 0.5
-numobs <- 20
 
 s0 <- effpropS*pop
 r0 <- 0
 zerohack <- 0.001
-numobs <- 20
+numobs <- 12
 nimtimevec <- c()
 source("CBsimulator.R")
 ```
 
-```{r, echo=FALSE}
+```{r, cache.rebuild = TRUE}
 sim <- simCB(beta = beta, pop = pop, effpropS = effpropS, effpropI = effpropI, 
              t0 = 1, numobs = numobs, reporting = reporting, seed = 3)
 sim
@@ -172,7 +171,7 @@ Take a peek at what this model produces
 
 Set up the required arguments to run the JAGS model
 
-```{r}
+```{r, tidy = TRUE}
 data <- list(obs = sim$Iobs,
              pop = pop,
              numobs = nrow(sim),
@@ -300,7 +299,7 @@ nimtimevec[2] <- system.time(CBoutC <- compileNimble(CBout))[3]
 
 Configure the MCMC with the default options (we will return to customizing this setup later) <br />
 
-```{r, message=FALSE, verbose = FALSE}
+```{r, message=FALSE, verbose = FALSE, warning = FALSE, errors = FALSE}
 nimtimevec[3] <- system.time(CBoutSpec <- configureMCMC(CBout, print = TRUE))[3]
 ```
 
@@ -372,7 +371,7 @@ CBoutMCMC <- compileNimble(CBoutMCMC, project  = CBout, resetFunctions = TRUE)
 ```
 
 ```{r}
-CBoutMCMC$run(30000)
+CBoutMCMC$run(20000)
 samplesNew <- as.matrix(CBoutMCMC$mvSamples)
 ```
 
@@ -401,10 +400,14 @@ nimcb <- MCMCsuite(code = nimcode,
                    constants = nimCBcon,
                    MCMCs = c("jags", "nimble"),
                    monitors = c("beta", "reporting", "effpropS", "effpropI"),
-                   niter = 4000,
+                   niter = 12000,
                    makePlot = FALSE,
-                   savePlot = TRUE)
+                   savePlot = FALSE)
 ```
+
+![beta chains](/Users/Morgan/Documents/Research/McMaster/Modeling_Work/Mike_Lunchbox/lunchbox/beta_1.pdf)
+![report chains](/Users/Morgan/Documents/Research/McMaster/Modeling_Work/Mike_Lunchbox/lunchbox/reporting_1.pdf)
+![posterior distributions](/Users/Morgan/Documents/Research/McMaster/Modeling_Work/Mike_Lunchbox/lunchbox/density_1.pdf)
 
 ##### <a name="1.4"> 1.4 "hybrid approach" </a> 
 
@@ -454,16 +457,16 @@ nimcb <- MCMCsuite(code = nimcode,
                    constants = nimhycon,
                    MCMCs = c("jags", "nimble"),
                    monitors = c("beta", "reporting", "effpropS", "effpropI"),
-                   niter = 4000,
+                   niter = 10000,
                    makePlot = FALSE,
-                   savePlot = TRUE)
+                   savePlot = FALSE)
 ```
 
 ##### <a name="1.4.2"> 1.4.2 Hybrid in JAGS, NIMBLE and STAN </a>
 
 Run the STAN model <br />
 
-```{r, message=FALSE, verbose = FALSE}
+```{r, message=FALSE, verbose = FALSE, warning = FALSE, errors = FALSE}
 stantime <- system.time (s1 <- stan(file='hybrid.stan', data = data, init = inits,
            pars=c("beta", "reporting", "effpropS", "effpropI", "I"), iter = 8000,
            seed = 1001, chains = length(inits)))
@@ -484,7 +487,7 @@ nimhyinits <- list(I = sim$I + zerohack,
                    s0 = s0)
 ```
 
-```{r, message=FALSE, verbose = FALSE}
+```{r}
 allhybrids <- MCMCsuite(code = nimcode,
                    data = nimhydata,
                    inits = nimhyinits,
@@ -494,14 +497,14 @@ allhybrids <- MCMCsuite(code = nimcode,
                    monitors = c("beta", "reporting", "effpropS", "effpropI"),
                    niter = 10000,
                    makePlot = FALSE,
-                   savePlot = TRUE)
+                   savePlot = FALSE)
 ```
 
 ##### <a name="1.5"> 1.5 Finally, compare the Chain Binomial NIMBLE and Hybrid STAN </a>
 
 ```{r}
 nimCBdata <- list(obs = sim$Iobs)
-nimCBcon <- list(numobs = numobs, pop = pop, r0 = r0)
+nimCBcon <- list(numobs = numobs, pop = pop, r0 = r0, zerohack = zerohack)
 
 nimCBinits <- list(I = sim$I,
                    effpropS = effpropS,
@@ -564,42 +567,82 @@ See pg 87 for custom MCMC sampler <br />
 
 ### Part 3
 
-See pg 95 for MCEM <br />
+##### Mote Carlo Expectation Maximization
 
-See pg 93-94 for particle filter <br />
+Suppose we have a model with missing data (or a layer of latent variables that can be 
+treated as missing data) and we would like to maximize the marginal likelihood of the model,
+integrating over the missing data. A brute-force method for doing this is MCEM. <br />
+
+Start by building the model <br />
+
+```{r, eval = FALSE}
+hybemout <- nimbleModel(code = nimcode, 
+                         name = 'hybemout', 
+                         constants = nimhycon,
+                         data = nimhydata, 
+                         inits = nimhyinits)
+
+hybMCEM <- buildMCEM(model = hybemout, latentNodes = list("I", "s0"), 
+                      burnIn = 100, mcmcControl = list(adaptInterval = 20), 
+                      boxConstraints = list( list( c("beta", "reporting", "effpropS", "effpropI"), 
+                                                   limits = c(0, Inf) ) ), 
+                        buffer = 1e-6)
+
+# The MCEM algorithm allows for box constraints on the nodes that will be optimized,
+# specified via the boxConstraints argument. This is highly recommended for nodes that
+# have zero density on parts of the real line
+```
+
+```{r, eval = FALSE}
+CBMCEM(maxit = 20, m1 = 150, m2 = 200)
+```
+
+##### Particle Filter 
+
+Set up the Nimble model <br />
 
 ```{r}
+CBpfout <- nimbleModel(code = nimcode, 
+                         name = 'CBpfout', 
+                         constants = nimCBcon,
+                         data = nimCBdata,
+                         check = FALSE)
+```
 
+Build the particle filter <br />
+
+```{r}
+CBpfoutC <- compileNimble(CBpfout)
+
+CBpf <- buildPF(CBpfout, c("I"))
 ```
 
 ```{r}
-
+CBpfC <- compileNimble(CBpf, project = CBpfout)
 ```
+
+Set your parameters <br />
 
 ```{r}
-
+CBpfoutC$beta = 0.02
+CBpfoutC$effpropS = 0.8
+CBpfoutC$effpropI = 0.2
+CBpfoutC$reporting = 0.5
 ```
+
+Obtain log-likelihood
 
 ```{r}
-
-```
-```{r}
-
+CBpfC$run(m = 5000)
 ```
 
-```{r}
+Currently relatively useless as is... <br />
 
-```
-```{r}
+Use this framework to construct your own updater <br />
 
-```
+##### Part 4:  
 
-```{r}
-
-```
-
-
-##### <a name="4.1"> Part 4: Misc NIMBLE Notes </a>
+<a name="4.1"> NIMBLE Notes </a>
 
 **Truncation of distributions** <br />
    • $x \∼ N(0, sd = 10) T(0, a)$, or <br />
