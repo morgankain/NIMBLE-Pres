@@ -1,4 +1,5 @@
 require(nimble)
+source("simulateCB.R")
 options(mc.cores = parallel::detectCores())
 source('nimCB.R')
 
