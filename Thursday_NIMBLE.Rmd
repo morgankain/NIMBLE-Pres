@@ -7,7 +7,7 @@ output: html_document
 
 ```{r setup}
 library(knitr)
-opts_knit$set(root.dir = "/Users/Morgan/Documents/Research/McMaster/Modeling_Work/Mike_Lunchbox/My_edits/lunchbox")
+opts_knit$set(root.dir = "/Users/Morgan/Documents/School Work/McMaster/NIMBLE_Presentation/")
 options(mc.cores = parallel::detectCores())
 #opts_chunk$set(cache = TRUE)
 ```
@@ -147,7 +147,7 @@ r0 <- 0
 zerohack <- 0.001
 numobs <- 12
 nimtimevec <- c()
-source("CBsimulator.R")
+source("CBsimulatorMK.R")
 ```
 
 
@@ -244,7 +244,7 @@ xyplot(as.mcmc(cbjags))
 ##### <a name="1.2"> 1.2 Build the NIMLE model </a>
 
 ```{r}
-source('nimCB.R')
+source('nimCBMK.R')
 ```
 
 Set up the model. Here we need: Constants, Data, Initial Values, NIMBLE model object <br />
@@ -627,6 +627,7 @@ MCMCsuite can also be used to compare models written in STAN or... which we will
     5. If none of the above criteria are satisfied, then a RW sampler is assigned. This is a Metropolis-Hastings adaptive random-walk sampler with a univariate normal proposal distribution. <br /> 
     
 **Missing Values** <br /> 
+
 ```{r}
 CBMiss <- CBout$newModel()
 CBMiss$resetData()
@@ -641,7 +642,8 @@ niter <- 1000
 set.seed(0)
 CBCobj$CBMissMCMC$run(niter)
 samples <- as.matrix(CBCobj$CBMissMCMC$mvSamples)
-rbind(head(samples), tail(samples))
+out <- rbind(head(samples), tail(samples))
+out
 ```
 
 **Multiple instances of the same model** <br />
