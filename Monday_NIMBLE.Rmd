@@ -814,11 +814,13 @@ Start by building the model <br />
 
 ```{r, eval = FALSE}
 
+### Construct the NIMBLE model
 CBemout <- nimbleModel(code = nimcode, 
                          name = 'CBemout', 
                          constants = nimCBcon,
                          data = nimCBdata, 
                          inits = nimCBinits)
+
 
 CBmcem <- buildMCEM(model = CBemout, latentNodes = list("I"), 
                       burnIn = 100, 
@@ -826,6 +828,7 @@ CBmcem <- buildMCEM(model = CBemout, latentNodes = list("I"),
                       boxConstraints = list( list( c("reporting", "effpropS", "effpropI"), 
                                                    limits = c(0, 1) ) ), 
                         buffer = 1e-6)
+# burnIn controls the number of discarded MCMC samples for each "E" step
 
 # The MCEM algorithm allows for box constraints on the nodes that will be optimized,
 # specified via the boxConstraints argument. This is highly recommended for nodes that
@@ -834,6 +837,9 @@ CBmcem <- buildMCEM(model = CBemout, latentNodes = list("I"),
 
 ```{r, eval = FALSE}
 CBmcem(maxit = 20, m1 = 150, m2 = 200)
+# maxit controls the total number of iterations
+# m1 controls the number of MCMC samples for the first half of the iterations
+# m2 controls the number of MCMC samples for the second half of the iterations to reduce MCMC error as the algorithm converges
 ```
 
 Having trouble with "non-finite finite-difference value", so in the meantime here is the example from the user manual <br />
