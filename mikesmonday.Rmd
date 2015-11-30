@@ -65,6 +65,7 @@ library("parallel")
 library("mcmcplots")
 library("lattice")
 library("coda")
+library("reshape2")
 ```
 
 <br />
@@ -312,7 +313,7 @@ a1 <- cbind(a1,var3="NoConjugates")
 a2 <- cbind(a2,var3="YesConjugates")
 dat <- rbind(a1,a2)
 
-ggplot(dat,aes(x=var3, y=value,group=interaction(Var1,Var2))) + geom_line(aes(color=interaction(Var1),linetype=Var2)) + geom_point(aes(color=Var1)) + theme_bw()
+ggplot(dat,aes(x=var3, y=value,group=interaction(Var1,Var2))) + geom_line(aes(color=interaction(Var1),linetype=Var2)) + geom_point(aes(color=Var1)) + theme_bw() + ylab('Efficiency') + xlab("speed hack")
 
 
 
