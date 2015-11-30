@@ -7,7 +7,6 @@ output: html_document
 
 ```{r setup}
 library(knitr)
-opts_knit$set(root.dir = "/Users/Morgan/Documents/School Work/McMaster/NIMBLE_Presentation/")
 options(mc.cores = parallel::detectCores())
 #opts_chunk$set(cache = TRUE)
 ```
@@ -68,6 +67,7 @@ library("parallel")
 library("mcmcplots")
 library("lattice")
 library("coda")
+library("reshape2")
 ```
 
 <br />
@@ -500,45 +500,14 @@ Well that didn't do anything... <br />
 
 NIMBLE allows for specification of samplers by parameter or node by node (NIMBLE included or user created) <br />
 
-```{r}
-CBout <- nimbleModel(code = nimcode, 
-                         name = 'CBout', 
-                         constants = nimCBcon,
-                         data = nimCBdata, 
-                         inits = nimCBinits)
-  
-CBoutC <- compileNimble(CBout)
-  
-CBoutSpec <- configureMCMC(CBout, print = TRUE)
+e.g. <br />
 
-CBoutSpec$addMonitors(c("beta", "effpropS", "effpropI", "reporting"))
-
-CBoutSpec$setThin(20)
-```
-
-```{r}
+```{r, eval = FALSE}
 CBoutSpec$removeSamplers(c("beta", "effpropS", "effpropI", "reporting"), print = TRUE)
 CBoutSpec$addSampler("beta", type = "slice", print = TRUE)
 CBoutSpec$addSampler("effpropS", type = "slice", print = TRUE)
 CBoutSpec$addSampler("effpropI", type = "slice", print = TRUE)
 CBoutSpec$addSampler("reporting", type = "slice", print = TRUE)
-```
-
-```{r}
-CBoutMCMC <- buildMCMC(CBoutSpec)
-CBoutMCMC <- compileNimble(CBoutMCMC, project  = CBout, resetFunctions = TRUE)
-```
-
-```{r}
-nimtimevec[7] <- system.time(CBoutMCMC$run(30000))[3]
-samplesblock <- as.matrix(CBoutMCMC$mvSamples)
-nim_eff <- effectiveSize(as.mcmc.list(as.mcmc(samplesblock))) / nimtimevec[7]
-nim_eff
-```
-
-```{r}
-  par(mfrow = c(1,1))
-  plot(samplesblock[ , 'effpropS'], samplesblock[ , 'effpropI'], pch = 20)
 ```
 
 <br />
@@ -550,51 +519,193 @@ We can also compare the NIMBLE model simultaneously with the JAGS model using MC
 
 Be warned: running this code with "makePlot = TRUE" will produce about 6-8 graphs which will all pop up in separate windows! <br />
 
-```{r}
-nimcb <- MCMCsuite(code = nimcode,
-                   data = nimCBdata,
-                   inits = nimCBinits,
-                   constants = nimCBcon,
-                   MCMCs = c("jags", "nimble"),
-                   monitors = c("beta", "reporting", "effpropS", "effpropI"),
-                   niter = 12000,
-                   calculateEfficiency = TRUE,
-                   makePlot = FALSE,
-                   savePlot = FALSE)
-  
-  nimcb$summary
-  
-  nimcb$efficiency
-  
-  nimcb$timing
+```{r, "Homework"}
+source("simulateCB.R")
+options(mc.cores = parallel::detectCores())
+source('nimCB.R')
+
+nimCBdata <- list(obs=sim$Iobs)
+nimCBcon <- list(numobs=numobs,N=N,i0=i0)
+
+nimCBinits <- list(I=sim$I,
+                   effprop=effprop,
+                   beta=beta,
+                   reporting=reporting,
+                   N0=N0
+)
+NimbleCB <- MCMCsuite(code=nimcode,
+                   data=nimCBdata,
+                   inits=nimCBinits,
+                   constants=nimCBcon,
+                   MCMCs=c("jags","nimble"),
+                   monitors=c("beta","reporting","effprop"),
+                   calculateEfficiency=TRUE,
+                   niter=iterations,
+                   makePlot=FALSE,
+                   savePlot=FALSE,
+                   setSeed = 5)
+
+print(NimbleCB$timing)
+print(NimbleCB$summary)
+
 ```
 
-MCMCsuite allows for convenient specification of MCMC runs <br />
+It is kind of scary considering Nimble is suppose to be this awesome super fast magic box. Before we learn Nimble, let's take a few minutes learning JAGS and samplers.
 
-For example, we may want to run a bit longer, introduce some burn-in, thinning and also compare a adaptive block sampler <br />
 
-```{r}
-nimcb <- MCMCsuite(code = nimcode,
-                   data = nimCBdata,
-                   inits = nimCBinits,
-                   constants = nimCBcon,
-                   MCMCs = c("jags", "nimble", "autoBlock", "nimble_RW"),
-                   monitors = c("beta", "reporting", "effpropS", "effpropI"),
-                   niter = 12000,
-                   burnin = 1000,
-                #   thin = 10,
-                   calculateEfficiency = TRUE,
-                   makePlot = FALSE,
-                   savePlot = FALSE)
-  
-  nimcb$summary
-  
-  nimcb$efficiency
-  
-  nimcb$timing
+```{r, Jags Example}
+
+rjags::set.factory("bugs::Conjugate", FALSE, type="sampler")
+
+Jagsmod <- jags.model(file="CB2.bug",data=data,inits=inits)
+
+list.samplers(Jagsmod)
+
+slicetime <- system.time(JagsCB <- jags(data=data,
+               inits=inits,
+               param = params,
+               model.file = "CB2.bug",
+               n.iter = iterations,
+               n.chains = length(inits),
+               n.thin = 1,
+               n.burnin = 2000
+               ))
+
+print(JagsCB)
+slice_eff <- effectiveSize(as.mcmc(JagsCB))/slicetime[3]
+
+
+rjags::set.factory("bugs::Conjugate", TRUE, type="sampler")
+
+Jagsmod2 <- jags.model(file="CB2.bug",data=data,inits=inits)
+
+list.samplers(Jagsmod2)
+
+conjutime <- system.time(JagsCB2 <- jags(data=data,
+               inits=inits,
+               param = params,
+               model.file = "CB2.bug",
+               n.iter = iterations,
+               n.chains = length(inits),
+               n.thin = 1,
+               n.burnin = 2000
+               ))
+print(JagsCB)
+print(JagsCB2)
+conju_eff <- effectiveSize(as.mcmc(JagsCB2))/conjutime[3]
+
+slicetime
+conjutime
+
+slice_eff
+conju_eff
 ```
 
-MCMCsuite can also be used to compare models written in STAN or... which we will see next week <br />
+Wow, that is pretty cool. Let's try to do it in Nimble. 
+
+```{r, NimbleCB}
+NimbleCB <- MCMCsuite(code=nimcode,
+                   data=nimCBdata,
+                   inits=nimCBinits,
+                   constants=nimCBcon,
+                   MCMCs=c("jags","nimble","nimble_slice"),
+                   monitors=c("beta","reporting","effprop"),
+                   calculateEfficiency=TRUE,
+                   niter=iterations,
+                   makePlot=FALSE,
+                   savePlot=FALSE,
+                   setSeed = 5)
+
+print(NimbleCB$timing)
+print(NimbleCB$summary)
+
+```
+
+Why is default Nimble underperforming? (vs Jags) Take my word, nimble-jags is NOT using conjugate samplers. Nimble slice turns all nodes to slice samplers, thus, nimble-jags and nimble slice is using the same sampler. As you can see Nimble slice is more efficient than JAGS.
+
+```{r, "Investigating default Nimble"}
+mod <- nimbleModel(code = nimcode, data=nimCBdata, inits=nimCBinits, constants=nimCBcon, name = "mod")
+temp <- compileNimble(mod) ## need to compile it once before recompiling changes
+Cmod <- configureMCMC(mod,print=TRUE,useConjugacy = TRUE)
+Cmodslice <- configureMCMC(mod,print=TRUE,useConjugacy = TRUE, onlySlice = TRUE)
+Cmod$removeSamplers(c("reporting","beta","effprop"))
+Cmod$addSampler(target = c("reporting","effprop"), type="RW_block")
+Cmod$addSampler("beta",type="slice")
+Cmod$addMonitors(c("reporting","beta","effprop"))
+
+newMCMC <- buildMCMC(Cmod)
+CnewMCMC <- compileNimble(newMCMC,project = mod, resetFunctions = TRUE)
+
+Cnewtime <- system.time(CnewMCMC$run(iterations))
+Cnewsample <- as.matrix(CnewMCMC$mvSamples)
+effectiveSize(as.mcmc(Cnewsample[,c('beta','effprop','reporting')]))/Cnewtime[3]
+
+```
+
+```{r, "combine everything"}
+NimbleCB <- MCMCsuite(code=nimcode,
+                   data=nimCBdata,
+                   inits=nimCBinits,
+                   constants=nimCBcon,
+                   MCMCs=c("jags","nimble","nimble_slice","newMCMC"),
+                   monitors=c("beta","reporting","effprop"),
+                   MCMCdefs = list(
+                     newMCMC = quote({
+                     Cmod <- configureMCMC(mod,print=FALSE,useConjugacy = TRUE)
+                     Cmod$removeSamplers(c("reporting","beta","effprop"))
+                     Cmod$addSampler(target = c("reporting","effprop"), type="RW_block")
+                     Cmod$addSampler("beta",type="slice")
+                     Cmod
+                   })),
+                   calculateEfficiency=TRUE,
+                   niter=iterations,
+                   makePlot=FALSE,
+                   savePlot=FALSE,
+                   setSeed = 5)
+
+print(NimbleCB$timing)
+print(NimbleCB$summary)
+
+```
+
+```{r, "conjugates"}
+source("nimCB2.R")
+mod2 <- nimbleModel(code = nimcode, data=nimCBdata, inits=nimCBinits, constants = nimCBcon,
+                    name= "mod2")
+Cmod2 <- configureMCMC(mod2,print=TRUE)
+
+NimbleCB2 <- MCMCsuite(code=nimcode,
+                   data=nimCBdata,
+                   inits=nimCBinits,
+                   constants=nimCBcon,
+                   MCMCs=c("jags","nimble","nimble_slice"),
+                   monitors=c("beta","reporting","effprop"),
+                   calculateEfficiency=TRUE,
+                   niter=iterations,
+                   makePlot=FALSE,
+                   savePlot=FALSE,
+                   setSeed = 5)
+print(NimbleCB$timing)
+print(NimbleCB2$timing)
+print(NimbleCB2$summary)
+
+mat1 <- as.array(NimbleCB$summary)
+mat2 <- as.array(NimbleCB2$summary)
+mat1 <- mat1[,"efficiency",]
+mat2 <- mat2[,"efficiency",]
+a1 <- melt(mat1)
+a2 <- melt(mat2)
+a1 <- cbind(a1,var3="NoConjugates")
+a2 <- cbind(a2,var3="YesConjugates")
+dat <- rbind(a1,a2)
+
+ggplot(dat,aes(x=var3, y=value,group=interaction(Var1,Var2))) + geom_line(aes(color=interaction(Var1),linetype=Var2)) + geom_point(aes(color=Var1)) + theme_bw() + ylab('Efficiency') + xlab("speed hack")
+
+
+
+```
+
+MCMCsuite can also be used to compare models written in STAN which is described below <br />
 
 <br />
 <br />
@@ -721,7 +832,11 @@ nimcb <- MCMCsuite(code = nimcode,
 
 ##### <a name="3.1"> 3.1 Expolore more fine-tuned adjustments that can be made in NIMBLE </a>
 
-##### <a name="3.1.1"> 3.1.1 See pg 87 in the NimbleUserManual for custom MCMC sampler </a>
+##### <a name="3.1.1"> 3.1.1 Custom MCMC sampler </a>
+
+The following example is taken directly from pgs 87-89 in the Nimble User Manual <br />
+
+http://r-nimble.org/manuals/ <br />
 
 ```{r, eval = FALSE}
 ## the name of this sampler function, for the purposes of ## adding it to MCMC configurations, will be 'my_RW' my_RW <- nimbleFunction(
@@ -877,6 +992,7 @@ system.time(pumpMLE <- pumpMCEM())
 pumpMLE
 ```
 
+<br />
 
 ##### <a name="4.1.2"> 4.1.2 Particle Filter </a>
 
@@ -921,6 +1037,8 @@ Currently relatively useless as is... <br />
 
 Use this framework to construct your own updater <br />
 
+<br />
+
 ##### Part 5:  
 
 <a name="5.1"> NIMBLE Notes </a>
@@ -950,7 +1068,7 @@ Use this framework to construct your own updater <br />
     
 **Missing Values** <br /> 
 
-```{r}
+```{r, eval = FALSE}
 CBMiss <- CBout$newModel()
 CBMiss$resetData()
 CBDataNew <- nimCBdata
@@ -970,7 +1088,7 @@ out
 
 **Multiple instances of the same model** <br />
 Sometimes it is useful to have more than one copy of the same model. For example, nimbleFunctions are often bound to a particular model as a result of setup code.
-```{r}
+```{r, eval = FALSE}
 simpleCode <- nimbleCode({
 for(i in 1:N) x[i] ~ dnorm(0, 1) })
 ## Return the model definition only, not a built model
