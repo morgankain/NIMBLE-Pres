@@ -331,7 +331,7 @@ CBout$getDependencies(c("beta"))
 CBout$getDependencies(c("beta"), determOnly = TRUE)
 ```
 
-We will return to nimbleFunctions later -- but here is an initial example nimbleFunction that will simulate multiple values for a designated set of nodes and calculate every part of the model that depends on them
+We will return to nimbleFunctions later -- but here is an initial example nimbleFunction that will simulate multiple values for a designated set of nodes and calculate every part of the model that depends on them <br />
 
 ```{r}
 simNodesMany <- nimbleFunction( setup = function(model, nodes) {
@@ -423,20 +423,11 @@ nim_eff
 
 ```{r, echo = FALSE}
   samples <- as.matrix(CBoutMCMC$mvSamples)
-  par(mfrow = c(1, 2), mai = c(.6, .5, .1, .2))
-  plot(samples[ , 'beta'], type = 'l', xlab = 'iteration')
-  plot(samples[ , 'effpropS'], type = 'l', xlab = 'iteration')
-  plot(samples[ , 'effpropI'], type = 'l', xlab = 'iteration')
-  plot(samples[ , 'reporting'], type = 'l', xlab = 'iteration')
-  par(mfrow = c(1, 1))
-  plot(samples[ , 'effpropS'], samples[ , 'effpropI'], pch = 20)
-```
-
-Save these points for later
-
-```{r}
-  def_effS <- samples[ , 'effpropS']
-  def_effI <- samples[ , 'effpropI']
+  par(mfrow = c(2, 2), mai = c(.5, .5, .3, .2))
+  plot(samples[ , 'beta'], type = 'l', xlab = 'iteration', main = "beta")
+  plot(samples[ , 'effpropS'], type = 'l', xlab = 'iteration', main = "effpropS")
+  plot(samples[ , 'effpropI'], type = 'l', xlab = 'iteration', main = "effpropI")
+  plot(samples[ , 'reporting'], type = 'l', xlab = 'iteration', main = "reporting")
 ```
 
 Look at the correlation in the chains
@@ -467,7 +458,7 @@ CBoutSpec$addSampler(target = c('effpropS', 'effpropI'), type = 'RW_block',
 ```
 
 ```{r}
-CBoutSpec$setThin(30)
+CBoutSpec$setThin(20)
 ```
 
 ```{r}
@@ -479,24 +470,25 @@ CBoutMCMC <- compileNimble(CBoutMCMC, project  = CBout, resetFunctions = TRUE)
 ```
 
 ```{r}
-CBoutMCMC$run(30000)
+nimtimevec[7] <- system.time(CBoutMCMC$run(11000))[3]
 samplesNew <- as.matrix(CBoutMCMC$mvSamples)
 ```
 
 Check for an imporvement
 
 ```{r}
-  par(mfrow = c(2,2))
   acf(samplesNew[, "effpropS"])
   acf(samplesNew[, "effpropI"])
   plot(samplesNew[ , 'effpropS'], type = 'l', xlab = 'iteration')
   plot(samplesNew[ , 'effpropI'], type = 'l', xlab = 'iteration')
-  par(mfrow = c(1,1))
-  plot(samplesNew[ , 'effpropS'], samplesNew[ , 'effpropI'], pch = 20)
-  points(def_effS, def_effI, pch = 20, col = "blue")
 ```
 
-Well that didn't do anything... <br />
+```{r}
+nim_eff2 <- effectiveSize(as.mcmc.list(as.mcmc(samplesNew))) / nimtimevec[7]
+
+nim_eff
+nim_eff2
+```
 
 NIMBLE allows for specification of samplers by parameter or node by node (NIMBLE included or user created) <br />
 
